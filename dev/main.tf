@@ -27,6 +27,7 @@ module "acr" {
   source            = "git::https://github.com/balasubramaniyand2203/infra-module.git//acr?ref=main"
   acr_name          = var.acr_name
   acr_sku           = "Basic"
+  aks_principal_id = module.aks.kubelet_identity_id
   acr_admin_enabled = false
   location          = module.resource_group.resource_group_location
   resource_group    = module.resource_group.resource_group_name
