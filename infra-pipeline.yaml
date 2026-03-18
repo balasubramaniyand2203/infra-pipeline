@@ -2,46 +2,96 @@ trigger:
 - main
 
 pool:
-  name: 'bala-poc'
+  name: 'bala-poc' # Your self-hosted agent
 
 variables:
-  # TRY THIS: Remove the leading slash and verify case sensitivity
-  # If your folder is "Infra-Live", this MUST be capital 'I'
-  workingDirectory: '$(System.DefaultWorkingDirectory)/infra-live/dev'
+  # Updated based on your 'pwd' output
+  workingDirectory: '$(System.DefaultWorkingDirectory)/dev'
+  # The name of your Azure Resource Manager Service Connection
   serviceConnection: 'bala'
 
 stages:
 - stage: Terraform_Plan
+  displayName: 'Terraform Plan Stage'
   jobs:
   - job: Plan
     steps:
     - checkout: self
       clean: true
 
-    # 1. DEBUG STEP: Run this to see the real folder structure
+    # 1. Terraform Init
+    # We use the 'bash' task since the 'TerraformTask' extension was missing
     - bash: |
-        echo "Current Directory: $(pwd)"
-        echo "Root Contents:"
-        ls -R $(System.DefaultWorkingDirectory)
-      displayName: 'Check Folder Structure'
-
-    # 2. TERRAFORM INIT
-    - bash: |
-        # Check if directory exists before running
-        if [ -d "$(workingDirectory)" ]; then
-          cd $(workingDirectory)
-          terraform init \
-            -backend-config="resource_group_name=terraform-mgmt-rg" \
-            -backend-config="storage_account_name=productionstorage2026" \
-            -backend-config="container_name=tfstate" \
-            -backend-config="key=dev.terraform.tfstate"
-        else
-          echo "ERROR: Directory $(workingDirectory) not found!"
-          exit 1
-        fi
+        terraform init \
+          -backend-config="resource_group_name=terraform-mgmt-rg" \
+          -backend-config="storage_account_name=productionstorage2026" \
+          -backend-config="container_name=tfstate" \
+          -backend-config="key=dev.terraform.tfstate"
       displayName: 'Terraform Init'
+      workingDirectory: $(workingDirectory)
       env:
         ARM_CLIENT_ID: $(ARM_CLIENT_ID)
         ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
         ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
         ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+    # 2. Terraform Plan
+    - bash: terraform plan -out=tfplan
+      displayName: 'Terraform Plan'
+      workingDirectory: $(workingDirectory)
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+    # 3. Publish Plan as Artifact (So Apply stage can use it)
+    - task: PublishPipelineArtifact@1
+      inputs:
+        targetPath: '$(workingDirectory)/tfplan'
+        artifact: 'terraform-plan'
+        publishLocation: 'pipeline'
+
+- stage: Terraform_Apply
+  displayName: 'Terraform Apply Stage'
+  condition: succeeded('Terraform_Plan')
+  jobs:
+  - deployment: Apply
+    displayName: 'Deploy to Azure'
+    environment: 'production' # This allows you to add Approval Gates in Azure DevOps
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+
+          # 1. Download the plan from the previous stage
+          - task: DownloadPipelineArtifact@2
+            inputs:
+              artifact: 'terraform-plan'
+              path: $(workingDirectory)
+
+          # 2. Terraform Init (Required again in new job/agent)
+          - bash: |
+              terraform init \
+                -backend-config="resource_group_name=terraform-mgmt-rg" \
+                -backend-config="storage_account_name=productionstorage2026" \
+                -backend-config="container_name=tfstate" \
+                -backend-config="key=dev.terraform.tfstate"
+            displayName: 'Terraform Init'
+            workingDirectory: $(workingDirectory)
+            env:
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+          # 3. Terraform Apply
+          - bash: terraform apply -auto-approve tfplan
+            displayName: 'Terraform Apply'
+            workingDirectory: $(workingDirectory)
+            env:
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
