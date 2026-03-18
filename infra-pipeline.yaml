@@ -7,11 +7,12 @@ pool:
 variables:
 # 1. Link your Library secrets
 - group: bala-secrets  
-# 2. Set the folder path we found via 'pwd'
+# 2. Set the folder path found via 'pwd'
 - name: workingDirectory
   value: '$(System.DefaultWorkingDirectory)/dev'
 
 stages:
+# STAGE 1: PLAN
 - stage: Terraform_Plan
   displayName: '1. Terraform Plan'
   jobs:
@@ -20,7 +21,6 @@ stages:
     - checkout: self
       clean: true
 
-    # Initialize Terraform (Downloads providers and modules from GitHub)
     - bash: |
         terraform init \
           -backend-config="resource_group_name=terraform-mgmt-rg" \
@@ -35,7 +35,6 @@ stages:
         ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
         ARM_TENANT_ID: $(ARM_TENANT_ID)
 
-    # Generate the execution plan
     - bash: terraform plan -out=tfplan
       displayName: 'Terraform Plan'
       workingDirectory: $(workingDirectory)
@@ -45,12 +44,12 @@ stages:
         ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
         ARM_TENANT_ID: $(ARM_TENANT_ID)
 
-    # Save the plan so the Apply stage can download it
     - task: PublishPipelineArtifact@1
       inputs:
         targetPath: '$(workingDirectory)/tfplan'
         artifact: 'tfplan-file'
 
+# STAGE 2: APPLY
 - stage: Terraform_Apply
   displayName: '2. Terraform Apply'
   dependsOn: Terraform_Plan
@@ -60,13 +59,11 @@ stages:
     steps:
     - checkout: self
 
-    # Download the plan generated in the previous stage
     - task: DownloadPipelineArtifact@2
       inputs:
         artifact: 'tfplan-file'
         path: $(workingDirectory)
 
-    # Re-initialize (Required for the Apply job to know about providers)
     - bash: |
         terraform init \
           -backend-config="resource_group_name=terraform-mgmt-rg" \
@@ -81,7 +78,6 @@ stages:
         ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
         ARM_TENANT_ID: $(ARM_TENANT_ID)
 
-    # Execute the plan
     - bash: terraform apply -auto-approve tfplan
       displayName: 'Terraform Apply'
       workingDirectory: $(workingDirectory)
@@ -90,3 +86,41 @@ stages:
         ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
         ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
         ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+# STAGE 3: DESTROY (Manual Approval Recommended)
+- stage: Terraform_Destroy
+  displayName: '3. Terraform Destroy'
+  dependsOn: Terraform_Apply
+  # condition: succeeded() # Remove this if you want to be able to destroy even if Apply fails
+  jobs:
+  - deployment: Destroy
+    displayName: 'Destroy Infrastructure'
+    environment: 'production' # Use an Azure DevOps Environment to add an Approval Check here
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+          
+          - bash: |
+              terraform init \
+                -backend-config="resource_group_name=terraform-mgmt-rg" \
+                -backend-config="storage_account_name=productionstorage2026" \
+                -backend-config="container_name=tfstate" \
+                -backend-config="key=dev.terraform.tfstate"
+            displayName: 'Terraform Init'
+            workingDirectory: $(workingDirectory)
+            env:
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+          - bash: terraform destroy -auto-approve
+            displayName: 'Terraform Destroy'
+            workingDirectory: $(workingDirectory)
+            env:
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
