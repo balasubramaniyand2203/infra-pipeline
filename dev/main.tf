@@ -1,10 +1,12 @@
 module "resource_group" {
-  source              = "./modules/resource_group"
+  #source              = "./modules/resource_group"
+  source = "git::https://github.com/balasubramaniyand2203/infra-module.git//resource_group?ref=main"
   resource_group_name = var.resource_group_name
   location            = var.location # <--- Add this line
 }
 module "vnet" {
-  source              = "./modules/vnet"
+  #source              = "./modules/vnet"
+  source = "git::https://github.com/balasubramaniyand2203/infra-module.git//vnet?ref=main"
   vnet_name           = var.vnet_name
   location            = var.location
   resource_group_name = module.resource_group.resource_group_name
@@ -15,7 +17,8 @@ module "vnet" {
 }
 
 module "subnet" {
-  source               = "./modules/subnet"
+  #source               = "./modules/subnet"
+  source = "git::https://github.com/balasubramaniyand2203/infra-module.git//subnet?ref=main"
   subnet_name          = var.subnet_name
   resource_group_name  = module.resource_group.resource_group_name
   virtual_network_name = module.vnet.vnet_name
@@ -27,7 +30,7 @@ module "subnet" {
 }
 
 module "acr" {
-  source            = "./modules/acr"
+  #source            = "./modules/acr"
   acr_name          = var.acr_name
   acr_sku           = "Basic"
   acr_admin_enabled = false
@@ -36,7 +39,8 @@ module "acr" {
 }
 
 module "mysql_server" {
-  source = "./modules/mysql"
+  #source = "./modules/mysql"
+  source = "git::https://github.com/balasubramaniyand2203/infra-module.git//mysql?ref=main"
 
   mysql_server_name                  = var.mysql_server_name
   mysql_admin_username               = var.mysql_admin_username
