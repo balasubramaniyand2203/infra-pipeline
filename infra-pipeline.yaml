@@ -28,6 +28,6 @@ stages:
         workingDirectory: $(workingDirectory)
         backendServiceArm: $(serviceConnection)
         backendAzureRmResourceGroupName: 'terraform-mgmt-rg'
-        backendAzureRmStorageAccountName: 'azurerm_storage_account.state_sa.name'
+        backendAzureRmStorageAccountName: 'productionstorage2026'
         backendAzureRmContainerName: 'tfstate'
         backendAzureRmKey: 'dev.terraform.tfstate'
