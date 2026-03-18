@@ -1,0 +1,33 @@
+trigger:
+- main
+
+pool:
+  name: 'bala-poc'
+
+variables:
+  # The path to your dev folder from the repo root
+  workingDirectory: '$(System.DefaultWorkingDirectory)/infra-live/dev'
+  serviceConnection: 'bala' # 
+
+stages:
+- stage: Terraform_Plan
+  jobs:
+  - job: Plan
+    steps:
+    # 1. Install Terraform on the agent
+    - task: TerraformInstaller@1
+      inputs:
+        terraformVersion: 'latest'
+
+    # 2. Terraform Init (Connects to Azure Backend)
+    - task: TerraformTaskV4@4
+      displayName: 'Terraform Init'
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        workingDirectory: $(workingDirectory)
+        backendServiceArm: $(serviceConnection)
+        backendAzureRmResourceGroupName: 'terraform-mgmt-rg'
+        backendAzureRmStorageAccountName: 'azurerm_storage_account.state_sa.name'
+        backendAzureRmContainerName: 'tfstate'
+        backendAzureRmKey: 'dev.terraform.tfstate'
