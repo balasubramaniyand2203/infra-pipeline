@@ -5,29 +5,28 @@ pool:
   name: 'bala-poc'
 
 variables:
-  # The path to your dev folder from the repo root
   workingDirectory: '$(System.DefaultWorkingDirectory)/infra-live/dev'
-  serviceConnection: 'bala' # 
+  # Use your Service Connection for the environment variables below
+  serviceConnection: 'bala' 
 
 stages:
 - stage: Terraform_Plan
   jobs:
   - job: Plan
     steps:
-    # 1. Install Terraform on the agent
-    - task: TerraformInstaller@1
-      inputs:
-        terraformVersion: 'latest'
-
-    # 2. Terraform Init (Connects to Azure Backend)
-    - task: TerraformTaskV4@4
-      displayName: 'Terraform Init'
-      inputs:
-        provider: 'azurerm'
-        command: 'init'
-        workingDirectory: $(workingDirectory)
-        backendServiceArm: $(serviceConnection)
-        backendAzureRmResourceGroupName: 'terraform-mgmt-rg'
-        backendAzureRmStorageAccountName: 'productionstorage2026'
-        backendAzureRmContainerName: 'tfstate'
-        backendAzureRmKey: 'dev.terraform.tfstate'
+    # Use a Bash script instead of the missing TerraformTask
+    - bash: |
+        terraform init \
+          -backend-config="resource_group_name=terraform-mgmt-rg" \
+          -backend-config="storage_account_name=productionstorage2026" \
+          -backend-config="container_name=tfstate" \
+          -backend-config="key=dev.terraform.tfstate"
+      displayName: 'Terraform Init via Bash'
+      workingDirectory: $(workingDirectory)
+      env:
+        # Note: You'll need to map your Service Connection secrets 
+        # to these environment variables for the provider to work.
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
