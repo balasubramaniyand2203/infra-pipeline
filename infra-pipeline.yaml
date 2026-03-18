@@ -5,22 +5,22 @@ pool:
   name: 'bala-poc' # Your self-hosted agent
 
 variables:
-  # Updated based on your 'pwd' output
-  workingDirectory: '$(System.DefaultWorkingDirectory)/dev'
-  # The name of your Azure Resource Manager Service Connection
-  serviceConnection: 'bala'
+# 1. Link your Library secrets
+- group: bala-secrets  
+# 2. Set the folder path we found via 'pwd'
+- name: workingDirectory
+  value: '$(System.DefaultWorkingDirectory)/dev'
 
 stages:
 - stage: Terraform_Plan
-  displayName: 'Terraform Plan Stage'
+  displayName: '1. Terraform Plan'
   jobs:
   - job: Plan
     steps:
     - checkout: self
       clean: true
 
-    # 1. Terraform Init
-    # We use the 'bash' task since the 'TerraformTask' extension was missing
+    # Initialize Terraform (Downloads providers and modules from GitHub)
     - bash: |
         terraform init \
           -backend-config="resource_group_name=terraform-mgmt-rg" \
@@ -35,7 +35,7 @@ stages:
         ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
         ARM_TENANT_ID: $(ARM_TENANT_ID)
 
-    # 2. Terraform Plan
+    # Generate the execution plan
     - bash: terraform plan -out=tfplan
       displayName: 'Terraform Plan'
       workingDirectory: $(workingDirectory)
@@ -45,53 +45,48 @@ stages:
         ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
         ARM_TENANT_ID: $(ARM_TENANT_ID)
 
-    # 3. Publish Plan as Artifact (So Apply stage can use it)
+    # Save the plan so the Apply stage can download it
     - task: PublishPipelineArtifact@1
       inputs:
         targetPath: '$(workingDirectory)/tfplan'
-        artifact: 'terraform-plan'
-        publishLocation: 'pipeline'
+        artifact: 'tfplan-file'
 
 - stage: Terraform_Apply
-  displayName: 'Terraform Apply Stage'
-  condition: succeeded('Terraform_Plan')
+  displayName: '2. Terraform Apply'
+  dependsOn: Terraform_Plan
+  condition: succeeded()
   jobs:
-  - deployment: Apply
-    displayName: 'Deploy to Azure'
-    environment: 'production' # This allows you to add Approval Gates in Azure DevOps
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - checkout: self
+  - job: Apply
+    steps:
+    - checkout: self
 
-          # 1. Download the plan from the previous stage
-          - task: DownloadPipelineArtifact@2
-            inputs:
-              artifact: 'terraform-plan'
-              path: $(workingDirectory)
+    # Download the plan generated in the previous stage
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        artifact: 'tfplan-file'
+        path: $(workingDirectory)
 
-          # 2. Terraform Init (Required again in new job/agent)
-          - bash: |
-              terraform init \
-                -backend-config="resource_group_name=terraform-mgmt-rg" \
-                -backend-config="storage_account_name=productionstorage2026" \
-                -backend-config="container_name=tfstate" \
-                -backend-config="key=dev.terraform.tfstate"
-            displayName: 'Terraform Init'
-            workingDirectory: $(workingDirectory)
-            env:
-              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
-              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
-              ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
-              ARM_TENANT_ID: $(ARM_TENANT_ID)
+    # Re-initialize (Required for the Apply job to know about providers)
+    - bash: |
+        terraform init \
+          -backend-config="resource_group_name=terraform-mgmt-rg" \
+          -backend-config="storage_account_name=productionstorage2026" \
+          -backend-config="container_name=tfstate" \
+          -backend-config="key=dev.terraform.tfstate"
+      displayName: 'Terraform Init'
+      workingDirectory: $(workingDirectory)
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
 
-          # 3. Terraform Apply
-          - bash: terraform apply -auto-approve tfplan
-            displayName: 'Terraform Apply'
-            workingDirectory: $(workingDirectory)
-            env:
-              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
-              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
-              ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
-              ARM_TENANT_ID: $(ARM_TENANT_ID)
+    # Execute the plan
+    - bash: terraform apply -auto-approve tfplan
+      displayName: 'Terraform Apply'
+      workingDirectory: $(workingDirectory)
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
