@@ -5,9 +5,7 @@ pool:
   name: 'bala-poc' # Your self-hosted agent
 
 variables:
-# 1. Link your Library secrets
 - group: bala-secrets  
-# 2. Set the folder path found via 'pwd'
 - name: workingDirectory
   value: '$(System.DefaultWorkingDirectory)/dev'
 
@@ -87,40 +85,46 @@ stages:
         ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
         ARM_TENANT_ID: $(ARM_TENANT_ID)
 
-# STAGE 3: DESTROY (Manual Approval Recommended)
+# STAGE 3: DESTROY
 - stage: Terraform_Destroy
   displayName: '3. Terraform Destroy'
   dependsOn: Terraform_Apply
-  # condition: succeeded() # Remove this if you want to be able to destroy even if Apply fails
   jobs:
-  - deployment: Destroy
-    displayName: 'Destroy Infrastructure'
-    environment: 'production' # Use an Azure DevOps Environment to add an Approval Check here
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - checkout: self
-          
-          - bash: |
-              terraform init \
-                -backend-config="resource_group_name=terraform-mgmt-rg" \
-                -backend-config="storage_account_name=productionstorage2026" \
-                -backend-config="container_name=tfstate" \
-                -backend-config="key=dev.terraform.tfstate"
-            displayName: 'Terraform Init'
-            workingDirectory: $(workingDirectory)
-            env:
-              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
-              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
-              ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
-              ARM_TENANT_ID: $(ARM_TENANT_ID)
+  - job: Destroy
+    pool: server # Manual validation tasks must run on the 'server' pool
+    steps:
+    - task: ManualValidation@0
+      timeoutInMinutes: 60
+      inputs:
+        notifyUsers: |
+          $(Build.RequestedForEmail)
+        instructions: 'Please validate the plan and resume to DESTROY the infrastructure.'
+        onTimeout: 'reject'
 
-          - bash: terraform destroy -auto-approve
-            displayName: 'Terraform Destroy'
-            workingDirectory: $(workingDirectory)
-            env:
-              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
-              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
-              ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
-              ARM_TENANT_ID: $(ARM_TENANT_ID)
+  - job: ExecuteDestroy
+    dependsOn: Destroy
+    condition: succeeded()
+    steps:
+    - checkout: self
+    - bash: |
+        terraform init \
+          -backend-config="resource_group_name=terraform-mgmt-rg" \
+          -backend-config="storage_account_name=productionstorage2026" \
+          -backend-config="container_name=tfstate" \
+          -backend-config="key=dev.terraform.tfstate"
+      displayName: 'Terraform Init'
+      workingDirectory: $(workingDirectory)
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+    - bash: terraform destroy -auto-approve
+      displayName: 'Terraform Destroy'
+      workingDirectory: $(workingDirectory)
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
