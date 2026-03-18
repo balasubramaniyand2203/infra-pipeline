@@ -2,30 +2,50 @@ trigger:
 - main
 
 pool:
-  name: 'bala-poc'
+  name: 'bala-poc' # Your self-hosted agent
 
 variables:
+  # IMPORTANT: This must match your Repo folder name EXACTLY (case-sensitive)
+  # If your folder is "infra-live", keep it lowercase. 
   workingDirectory: '$(System.DefaultWorkingDirectory)/infra-live/dev'
-  # Use your Service Connection for the environment variables below
-  serviceConnection: 'bala' 
+  serviceConnection: 'bala'
 
 stages:
 - stage: Terraform_Plan
   jobs:
   - job: Plan
     steps:
-    # Use a Bash script instead of the missing TerraformTask
+    - checkout: self
+      clean: true # Ensures a fresh copy of your code on the self-hosted agent
+
+    # DEBUG STEP: This will show you the real path if the next step fails
+    - bash: |
+        echo "Current Agent Directory: $(pwd)"
+        echo "Listing files in $(System.DefaultWorkingDirectory):"
+        ls -R $(System.DefaultWorkingDirectory)
+      displayName: 'Debug: List Folder Structure'
+
+    # THE FIX: Terraform Init using Bash
     - bash: |
         terraform init \
           -backend-config="resource_group_name=terraform-mgmt-rg" \
           -backend-config="storage_account_name=productionstorage2026" \
           -backend-config="container_name=tfstate" \
           -backend-config="key=dev.terraform.tfstate"
-      displayName: 'Terraform Init via Bash'
+      displayName: 'Terraform Init'
       workingDirectory: $(workingDirectory)
       env:
-        # Note: You'll need to map your Service Connection secrets 
-        # to these environment variables for the provider to work.
+        # These allow Terraform to talk to Azure via your Service Connection
+        # Ensure these variables are defined in your Pipeline Library or Variables
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+
+    - bash: terraform plan -out=tfplan
+      displayName: 'Terraform Plan'
+      workingDirectory: $(workingDirectory)
+      env:
         ARM_CLIENT_ID: $(ARM_CLIENT_ID)
         ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
         ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
